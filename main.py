@@ -18,7 +18,7 @@ import psycopg2
 keep_alive()
 
 try:
-    conn = psycopg2.connect(
+        conn = psycopg2.connect(
         dbname=os.environ.get('dbname'),
         user=os.environ.get('user'),
         password=os.environ.get('password'),
