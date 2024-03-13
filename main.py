@@ -24,10 +24,10 @@ try:
         password=os.environ.get('password'),
         host=os.environ.get('host'),
         port=os.environ.get('port')
-    )
-    print("Connected to database successfully!")
+                                    )
+        print("Connected to database successfully!")
 except psycopg2.Error as e:
-    print("Unable to connect to the database:", e)
+        print("Unable to connect to the database:", e)
 
 cur = conn.cursor()
 
