@@ -2,22 +2,22 @@ import asyncio
 import logging
 import sys
 
-from aiogram import Bot, Dispatcher, Router, types
+from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import Message
-from aiogram.utils.markdown import hbold
-from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
-from epicstore_api import EpicGamesStoreAPI, OfferData
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from epicstore_api import EpicGamesStoreAPI
 from datetime import datetime, timedelta
 from aiogram import types as aiogram_types
 import aioschedule
 from dateutil import parser
 import os
 from keep_alive import keep_alive
+from pysondb import db
 keep_alive()
 
-
+database = db.getDb('db.json')
 
 # Bot token can be obtained via https://t.me/BotFather
 TOKEN = os.environ.get('token')
@@ -39,62 +39,41 @@ btn_lang_en = KeyboardButton(text='🌐 Language')
 btn_refresh_ru = KeyboardButton(text='🔄 Обновить')
 btn_lang_ru = KeyboardButton(text='🌐 Язык')
 
-btn_lang_adm = KeyboardButton(text='🌐 Язык')
+btn_announce_ru = KeyboardButton(text='📢 Анонс')
+btn_announce_en = KeyboardButton(text='📢 Announcement')
 
+btn_admin_uc = KeyboardButton(text='User Count')
 
 Kb_RU = ReplyKeyboardMarkup(
-    keyboard=[[btn_refresh_ru, btn_lang_ru]],
+    keyboard=[[btn_refresh_ru, btn_lang_ru, btn_announce_ru]],
     resize_keyboard=True,
     one_time_keyboard=False
 )
 
 Kb_EN = ReplyKeyboardMarkup(
-    keyboard=[[btn_refresh_en, btn_lang_en]],
+    keyboard=[[btn_refresh_en, btn_lang_en, btn_announce_en]],
     resize_keyboard=True,
     one_time_keyboard=False
 )
 
 Kb_Admin = ReplyKeyboardMarkup(
-    keyboard=[[btn_refresh_en, btn_lang_en]],
+    keyboard=[[btn_refresh_en, btn_lang_en, btn_announce_en, btn_admin_uc]],
     resize_keyboard=True,
     one_time_keyboard=False
 )
 
 remove_keyboard = aiogram_types.ReplyKeyboardRemove()
 
-def finder_date(data):
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if key == 'endDate':
-                return value
-            elif isinstance(value, (dict, list)):
-                result = finder_date(value)
-                if result is not None:
-                    return result
-    elif isinstance(data, list):
-        for item in data:
-            result = finder_date(item)
-            if result is not None:
-                return result
+def finder_date(data, title_to_find, datetype):
+    for element in data['data']['Catalog']['searchStore']['elements']:
+        if element['title'] == title_to_find:
+            try:
+                end_date = element['promotions']['upcomingPromotionalOffers'][0]['promotionalOffers'][0][datetype]
+                return(end_date)
+            except:
+                end_date = element['promotions']['promotionalOffers'][0]['promotionalOffers'][0][datetype]
+                return(end_date)
 
-    return None
-
-def finder_out(data):
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if key == 'effectiveDate':
-                return value
-            elif isinstance(value, (dict, list)):
-                result = finder_date(value)
-                if result is not None:
-                    return result
-    elif isinstance(data, list):
-        for item in data:
-            result = finder_date(item)
-            if result is not None:
-                return result
-
-    return None
 
 def schedule_async_ru(schedule_time):
     # Parse the provided datetime string
@@ -121,6 +100,7 @@ async def command_start_handler(message: Message) -> None:
     # and the target chat will be passed to :ref:`aiogram.methods.send_message.SendMessage`
     # method automatically or call API method directly via
     # Bot instance: `bot.send_message(chat_id=message.chat.id, ...)`
+    database.add({"name":message.from_user.full_name, "tg_id":message.from_user.id})
     if message.from_user.id == 6461801825 or message.from_user.id == '6461801825':
         await message.answer('👋👋👋', reply_markup=Kb_Admin)
     else:
@@ -133,21 +113,34 @@ async def monitor(message: types.Message) -> None:
                  
     if message.text == '🇷🇺 Русский' or message.text == '🔄 Обновить':
        await refresh_ru(message)
-        
+
     if message.text == '🇺🇸 English' or message.text == '🔄 Refresh':
        await refresh_en(message)
+    
+    if message.text == '📢 Анонс':
+        await announce_ru(message)
+
+    if message.text == '📢 Announcement':
+        await announce_en(message)
+    
+    if message.text == 'User Count':
+        await usercount(message)
+
+
+async def usercount(message):
+    await message.answer(f'User count right now is: {str(len(database.getAll()))}')
 
 async def refresh_ru(message):
     api = EpicGamesStoreAPI(locale='ru-RU', country='RU', session=None)
     free_games = api.get_free_games()
-    date = finder_date(free_games)
-    parsed_date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(hours=3)
-    schedule_async_ru(str(parsed_date))
     for i in range(0, len(free_games['data']['Catalog']['searchStore']['elements'])) :
         if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] != 0:
+            date = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
+            parsed_date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(hours=3)
+            schedule_async_en(str(parsed_date))
             await message.answer_photo(
                 photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
-                caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + finder_out(free_games)[:4] + ')</b>\n' +
+                caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
                 '\nБез скидки: ' + '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['fmtPrice']['originalPrice'] + '</b>' + 
                 '\nБесплатно до: ' + parsed_date.strftime("%d.%m.%Y %H:%M") + ' МСК\n' +
                 '\nhttps://store.epicgames.com/ru-RU/p/' + free_games['data']['Catalog']['searchStore']['elements'][i]['catalogNs']['mappings'][0]['pageSlug'] + '\n' +
@@ -157,18 +150,54 @@ async def refresh_ru(message):
 async def refresh_en(message):
     api = EpicGamesStoreAPI(locale='en-US', country='US', session=None)
     free_games = api.get_free_games()
-    date = finder_date(free_games)
-    parsed_date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%fZ")
-    schedule_async_en(str(parsed_date))
     for i in range(0, len(free_games['data']['Catalog']['searchStore']['elements'])) :
         if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] != 0:
+            date = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
+            parsed_date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%fZ")
+            schedule_async_en(str(parsed_date))
             await message.answer_photo(
                 photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
-                caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + finder_out(free_games)[:4] + ')</b>\n' +
+                caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
                 '\nOriginal price: ' + '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['fmtPrice']['originalPrice'] + '</b>' + 
                 '\nDeal expires: ' + parsed_date.strftime("%d.%m.%Y %H:%M") + ' GMT\n' +
                 '\nhttps://store.epicgames.com/en-US/p/' + free_games['data']['Catalog']['searchStore']['elements'][i]['catalogNs']['mappings'][0]['pageSlug'] + '\n' +
                 '\n' + free_games['data']['Catalog']['searchStore']['elements'][i]['description'], disable_web_page_preview=True, reply_markup=Kb_EN
+            )
+
+async def announce_en(message):
+    api = EpicGamesStoreAPI(locale='en-US', country='US', session=None)
+    free_games = api.get_free_games()
+    for i in range(0, len(free_games['data']['Catalog']['searchStore']['elements'])) :
+        if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] == 0:
+            date_start = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'startDate')
+            parsed_date_start = datetime.strptime(date_start, "%Y-%m-%dT%H:%M:%S.%fZ")
+            date_end = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
+            parsed_date_end = datetime.strptime(date_end, "%Y-%m-%dT%H:%M:%S.%fZ")
+            await message.answer_photo(
+                photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
+                caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
+                '\nOriginal price: ' + '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['fmtPrice']['originalPrice'] + '</b>' + 
+                f'\n<b>From:</b> {parsed_date_start.strftime("%d.%m.%Y %H:%M")} GMT\n<b>To: </b> {parsed_date_end.strftime("%d.%m.%Y %H:%M")} GMT\n' +
+                '\nhttps://store.epicgames.com/en-US/p/' + free_games['data']['Catalog']['searchStore']['elements'][i]['catalogNs']['mappings'][0]['pageSlug'] + '\n' +
+                '\n' + free_games['data']['Catalog']['searchStore']['elements'][i]['description'], disable_web_page_preview=True, reply_markup=Kb_EN
+            )
+
+async def announce_ru(message):
+    api = EpicGamesStoreAPI(locale='ru-RU', country='RU', session=None)
+    free_games = api.get_free_games()
+    for i in range(0, len(free_games['data']['Catalog']['searchStore']['elements'])) :
+        if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] == 0:
+            date_start = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'startDate')
+            parsed_date_start = datetime.strptime(date_start, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(hours=3)
+            date_end = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
+            parsed_date_end = datetime.strptime(date_end, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(hours=3)
+            await message.answer_photo(
+                photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
+                caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
+                '\nБез скидки: ' + '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['fmtPrice']['originalPrice'] + '</b>' + 
+                f'\n<b>От:</b> {parsed_date_start.strftime("%d.%m.%Y %H:%M")} МСК\n<b>До: </b> {parsed_date_end.strftime("%d.%m.%Y %H:%M")} МСК\n' +
+                '\nhttps://store.epicgames.com/ru-RU/p/' + free_games['data']['Catalog']['searchStore']['elements'][i]['catalogNs']['mappings'][0]['pageSlug'] + '\n' +
+                '\n' + free_games['data']['Catalog']['searchStore']['elements'][i]['description'], disable_web_page_preview=True, reply_markup=Kb_RU
             )
 
 async def main() -> None:
