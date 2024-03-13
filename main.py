@@ -14,10 +14,38 @@ import aioschedule
 from dateutil import parser
 import os
 from keep_alive import keep_alive
-from pysondb import db
+import psycopg2
 keep_alive()
 
-database = db.getDb('db.json')
+try:
+    conn = psycopg2.connect(
+        dbname=os.environ.get('dbname'),
+        user=os.environ.get('user'),
+        password=os.environ.get('password'),
+        host=os.environ.get('host'),
+        port=os.environ.get('port')
+    )
+    print("Connected to database successfully!")
+except psycopg2.Error as e:
+    print("Unable to connect to the database:", e)
+
+cur = conn.cursor()
+
+try:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS botdb (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            tg_id BIGINT NOT NULL,
+            UNIQUE (name, tg_id)
+        )
+    """)
+    conn.commit()
+    print("Table created successfully!")
+
+except psycopg2.Error as e:
+    print("Error creating table:", e)
+
 
 # Bot token can be obtained via https://t.me/BotFather
 TOKEN = os.environ.get('token')
@@ -100,8 +128,19 @@ async def command_start_handler(message: Message) -> None:
     # and the target chat will be passed to :ref:`aiogram.methods.send_message.SendMessage`
     # method automatically or call API method directly via
     # Bot instance: `bot.send_message(chat_id=message.chat.id, ...)`
-    database.add({"name":message.from_user.full_name, "tg_id":message.from_user.id})
-    if message.from_user.id == 6461801825 or message.from_user.id == '6461801825':
+        cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO botdb (name, tg_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING;
+        """, (message.from_user.full_name, int(message.from_user.id)))
+        print("Entry added successfully!")
+        conn.commit()
+    except psycopg2.Error as e:
+        print("Error inserting data:", e)
+
+    if message.from_user.id == str(os.environ.get('admin_id')):
         await message.answer('👋👋👋', reply_markup=Kb_Admin)
     else:
         await message.answer('👋', reply_markup=Kb_lang)
@@ -128,8 +167,14 @@ async def monitor(message: types.Message) -> None:
 
 
 async def usercount(message):
-    await message.answer(f'User count right now is: {str(len(database.getAll()))}')
-
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM botdb")
+        row_count = cur.fetchone()[0]
+        print("Number of rows:", row_count)
+    except psycopg2.Error as e:
+        print("Error counting rows:", e)
+    await message.answer(f'User count right now is: <b>{str(row_count)}</b>')
 async def refresh_ru(message):
     api = EpicGamesStoreAPI(locale='ru-RU', country='RU', session=None)
     free_games = api.get_free_games()
