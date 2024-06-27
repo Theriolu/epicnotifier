@@ -44,6 +44,7 @@ try:
             id SERIAL PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
             tg_id BIGINT NOT NULL,
+            lang VARCHAR(2) NOT NULL CHECK (lang IN ('ru', 'en')),
             UNIQUE (name, tg_id)
         )
     """)
@@ -110,20 +111,6 @@ def finder_date(data, title_to_find, datetype):
                 return(end_date)
 
 
-def schedule_async_ru(schedule_time):
-    # Parse the provided datetime string
-    scheduled_datetime = parser.parse(schedule_time) + timedelta(minutes=1)
-
-    # Schedule your asynchronous function to run at the specified date and time
-    aioschedule.every().day.at(scheduled_datetime.strftime("%H:%M")).do(refresh_ru)
-
-def schedule_async_en(schedule_time):
-    # Parse the provided datetime string
-    scheduled_datetime = parser.parse(schedule_time) + timedelta(minutes=1)
-
-    # Schedule your asynchronous function to run at the specified date and time
-    aioschedule.every().day.at(scheduled_datetime.strftime("%H:%M")).do(refresh_en)
-
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
@@ -135,19 +122,9 @@ async def command_start_handler(message: Message) -> None:
     # and the target chat will be passed to :ref:`aiogram.methods.send_message.SendMessage`
     # method automatically or call API method directly via
     # Bot instance: `bot.send_message(chat_id=message.chat.id, ...)`
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO botdb (name, tg_id)
-            VALUES (%s, %s)
-            ON CONFLICT DO NOTHING;
-        """, (message.from_user.full_name, int(message.from_user.id)))
-        print("Entry added successfully!")
-        conn.commit()
-    except:
-        print("Error inserting data:")
+    
 
-    if message.from_user.id == str(os.environ.get('admin_id')):
+    if str(message.from_user.id) == str(os.environ.get('admin_id')):
         await message.answer('👋👋👋', reply_markup=Kb_Admin)
     else:
         await message.answer('👋', reply_markup=Kb_lang)
@@ -158,10 +135,33 @@ async def monitor(message: types.Message) -> None:
         await message.answer(text='👋', reply_markup=Kb_lang)
                  
     if message.text == '🇷🇺 Русский' or message.text == '🔄 Обновить':
-       await refresh_ru(message)
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO botdb (name, tg_id, lang)
+                VALUES (%s, %s, %s)
+                ON CONFLICT DO NOTHING;
+            """, (message.from_user.full_name, int(message.from_user.id), 'ru'))
+            print("Entry added successfully!")
+            conn.commit()
+        except:
+            print("Error inserting data:")
+        await refresh_ru(message)
 
     if message.text == '🇺🇸 English' or message.text == '🔄 Refresh':
-       await refresh_en(message)
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO botdb (name, tg_id, lang)
+                VALUES (%s, %s, %s)
+                ON CONFLICT DO NOTHING;
+            """, (message.from_user.full_name, int(message.from_user.id), 'en'))
+            print("Entry added successfully!")
+            conn.commit()
+        except:
+            print("Error inserting data:")
+
+        await refresh_en(message)
     
     if message.text == '📢 Анонс':
         await announce_ru(message)
@@ -190,7 +190,6 @@ async def refresh_ru(message):
         if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] != 0:
             date = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
             parsed_date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(hours=3)
-            schedule_async_en(str(parsed_date))
             await message.answer_photo(
                 photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
                 caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
@@ -207,7 +206,6 @@ async def refresh_en(message):
         if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] != 0:
             date = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
             parsed_date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%fZ")
-            schedule_async_en(str(parsed_date))
             await message.answer_photo(
                 photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
                 caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
@@ -253,6 +251,68 @@ async def announce_ru(message):
                 '\n' + free_games['data']['Catalog']['searchStore']['elements'][i]['description'], disable_web_page_preview=True, reply_markup=Kb_RU
             )
 
+currentgames_en = 1
+
+async def checkforupdates_en():
+    global currentgames_en
+    api = EpicGamesStoreAPI(locale='en-US', country='US', session=None)
+    free_games = api.get_free_games()
+    if free_games != currentgames_en:
+        currentgames_en = free_games
+        cur = conn.cursor()
+        cur.execute("SELECT tg_id FROM botdb WHERE lang = 'en'")
+        alluserids = cur.fetchall()
+        tg_id_list = [row[0] for row in alluserids]
+
+        for i in range(0, len(free_games['data']['Catalog']['searchStore']['elements'])) :
+            if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] != 0:
+                date = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
+                parsed_date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.%fZ")
+                for individ in tg_id_list:
+                    await Bot(TOKEN, parse_mode=ParseMode.HTML).send_photo(
+                        chat_id=individ,
+                        photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
+                        caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
+                        '\nOriginal price: ' + '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['fmtPrice']['originalPrice'] + '</b>' + 
+                        '\nDeal expires: ' + parsed_date.strftime("%d.%m.%Y %H:%M") + ' GMT\n' +
+                        '\nhttps://store.epicgames.com/en-US/p/' + free_games['data']['Catalog']['searchStore']['elements'][i]['catalogNs']['mappings'][0]['pageSlug'] + '\n' +
+                        '\n' + free_games['data']['Catalog']['searchStore']['elements'][i]['description'], reply_markup=Kb_EN
+                    )
+    await asyncio.sleep(600)
+
+currentgames_ru = 1
+
+async def checkforupdates_ru():
+    global currentgames_ru
+    api = EpicGamesStoreAPI(locale='ru-RU', country='RU', session=None)
+    free_games = api.get_free_games()
+    if free_games != currentgames_ru:
+        currentgames_ru = free_games
+        cur = conn.cursor()
+        cur.execute("SELECT tg_id FROM botdb WHERE lang = 'ru'")
+        alluserids = cur.fetchall()
+        tg_id_list = [row[0] for row in alluserids]
+
+        for i in range(0, len(free_games['data']['Catalog']['searchStore']['elements'])) :
+            if free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['discount'] == 0:
+                date_start = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'startDate')
+                parsed_date_start = datetime.strptime(date_start, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(hours=3)
+                date_end = finder_date(free_games, free_games['data']['Catalog']['searchStore']['elements'][i]['title'], 'endDate')
+                parsed_date_end = datetime.strptime(date_end, "%Y-%m-%dT%H:%M:%S.%fZ") + timedelta(hours=3)
+                for individ in tg_id_list:
+                    await Bot(TOKEN, parse_mode=ParseMode.HTML).send_photo(
+                        chat_id=individ,
+                        photo = free_games['data']['Catalog']['searchStore']['elements'][i]['keyImages'][1]['url'],
+                        caption = '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['title'] +' (' + free_games['data']['Catalog']['searchStore']['elements'][i]['effectiveDate'][:4] + ')</b>\n' +
+                        '\nБез скидки: ' + '<b>' + free_games['data']['Catalog']['searchStore']['elements'][i]['price']['totalPrice']['fmtPrice']['originalPrice'] + '</b>' + 
+                        f'\n<b>От:</b> {parsed_date_start.strftime("%d.%m.%Y %H:%M")} МСК\n<b>До: </b> {parsed_date_end.strftime("%d.%m.%Y %H:%M")} МСК\n' +
+                        '\nhttps://store.epicgames.com/ru-RU/p/' + free_games['data']['Catalog']['searchStore']['elements'][i]['catalogNs']['mappings'][0]['pageSlug'] + '\n' +
+                        '\n' + free_games['data']['Catalog']['searchStore']['elements'][i]['description'], reply_markup=Kb_RU
+                    )
+    await asyncio.sleep(600)
+    
+
+
 async def main() -> None:
     # Initialize Bot instance with a default parse mode which will be passed to all API calls
     bot = Bot(TOKEN, parse_mode=ParseMode.HTML)
@@ -269,6 +329,8 @@ if __name__ == "__main__":
 
     # Run the main function and scheduled tasks concurrently
     loop.create_task(main())
+    loop.create_task(checkforupdates_en())
+    loop.create_task(checkforupdates_ru())
     loop.create_task(aioschedule.run_pending())
 
     # Keep the event loop running
