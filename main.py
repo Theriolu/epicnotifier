@@ -15,7 +15,13 @@ from dateutil import parser
 import os
 from keep_alive import keep_alive
 import psycopg2
+from dotenv import load_dotenv
 keep_alive()
+
+try:
+    load_dotenv()
+except:
+    print('error loading variables from .env')
 
 try:
         conn = psycopg2.connect(
@@ -26,10 +32,11 @@ try:
         port=os.environ.get('port')
                                     )
         print("Connected to database successfully!")
+        cur = conn.cursor()
 except psycopg2.Error as e:
         print("Unable to connect to the database:", e)
 
-cur = conn.cursor()
+
 
 try:
     cur.execute("""
@@ -43,8 +50,8 @@ try:
     conn.commit()
     print("Table created successfully!")
 
-except psycopg2.Error as e:
-    print("Error creating table:", e)
+except:
+    print("Error creating table:")
 
 
 # Bot token can be obtained via https://t.me/BotFather
@@ -128,8 +135,8 @@ async def command_start_handler(message: Message) -> None:
     # and the target chat will be passed to :ref:`aiogram.methods.send_message.SendMessage`
     # method automatically or call API method directly via
     # Bot instance: `bot.send_message(chat_id=message.chat.id, ...)`
-    cur = conn.cursor()
     try:
+        cur = conn.cursor()
         cur.execute("""
             INSERT INTO botdb (name, tg_id)
             VALUES (%s, %s)
@@ -137,8 +144,8 @@ async def command_start_handler(message: Message) -> None:
         """, (message.from_user.full_name, int(message.from_user.id)))
         print("Entry added successfully!")
         conn.commit()
-    except psycopg2.Error as e:
-        print("Error inserting data:", e)
+    except:
+        print("Error inserting data:")
 
     if message.from_user.id == str(os.environ.get('admin_id')):
         await message.answer('👋👋👋', reply_markup=Kb_Admin)
@@ -167,13 +174,14 @@ async def monitor(message: types.Message) -> None:
 
 
 async def usercount(message):
-    cur = conn.cursor()
+
     try:
+        cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM botdb")
         row_count = cur.fetchone()[0]
         print("Number of rows:", row_count)
-    except psycopg2.Error as e:
-        print("Error counting rows:", e)
+    except:
+        print("Error counting rows:")
     await message.answer(f'User count right now is: <b>{str(row_count)}</b>')
 async def refresh_ru(message):
     api = EpicGamesStoreAPI(locale='ru-RU', country='RU', session=None)
