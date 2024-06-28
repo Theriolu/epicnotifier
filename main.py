@@ -170,7 +170,10 @@ async def monitor(message: types.Message) -> None:
         await announce_en(message)
     
     if message.text == 'User Count':
-        await usercount(message)
+        try:
+            await usercount(message)
+        except:
+            print("Error counting rows:")
 
 
 async def usercount(message):
@@ -183,6 +186,8 @@ async def usercount(message):
     except:
         print("Error counting rows:")
     await message.answer(f'User count right now is: <b>{str(row_count)}</b>')
+
+
 async def refresh_ru(message):
     api = EpicGamesStoreAPI(locale='ru-RU', country='RU', session=None)
     free_games = api.get_free_games()
