@@ -32,4 +32,8 @@ urllib3==2.2.1
 yarl==1.9.4
 flask
 psycopg2
+<<<<<<< HEAD
 python-dotenv
+=======
+python-dotenv
+>>>>>>> 71cc16b25153ef1368bc3645ce17feaeed69f6cd
